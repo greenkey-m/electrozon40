@@ -62,7 +62,7 @@ class ControllerExtensionModuleCategory extends Controller {
         $allcategories = $this->model_catalog_category->getAllCategories();
 
         $categories = $this->form_tree($allcategories);
-        $data['categories'] = $this->build_tree($categories, 0);
+        $data['categories'] = $this->build_tree($categories, 0, "");
 
 		return $this->load->view('extension/module/category', $data);
 	}
@@ -81,7 +81,7 @@ class ControllerExtensionModuleCategory extends Controller {
 
     //$parent_id - какой parentid считать корневым
     //по умолчанию 0 (корень)
-    private function build_tree($cats, $parent_id)
+    private function build_tree($cats, $parent_id, $pathy)
     {
         if (is_array($cats) && isset($cats[$parent_id])) {
             $tree = array();
@@ -89,8 +89,8 @@ class ControllerExtensionModuleCategory extends Controller {
                 $tree[] = array(
                     'category_id' => $cat['category_id'],
                     'name'        => $cat['name'],
-                    'href'        => $this->url->link('product/category', 'path=' . $cat['category_id']),
-                    'children'    => $this->build_tree($cats, $cat['category_id'])
+                    'href'        => $this->url->link('product/category', 'path=' . ($pathy <> "" ? $pathy."_" : "") . $cat['category_id']),
+                    'children'    => $this->build_tree($cats, $cat['category_id'], ($pathy <> "" ? $pathy."_" : "").$cat['category_id'])
                 );
             }
         } else {
