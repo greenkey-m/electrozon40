@@ -61,41 +61,42 @@ class ControllerExtensionModuleCategory extends Controller {
 
         $allcategories = $this->model_catalog_category->getAllCategories();
 
-        function form_tree($mess)
-        {
-            if (!is_array($mess)) {
-                return false;
-            }
-            $tree = array();
-            foreach ($mess as $value) {
-                $tree[$value['parent_id']][] = $value;
-            }
-            return $tree;
-        }
-
-        //$parent_id - какой parentid считать корневым
-        //по умолчанию 0 (корень)
-        function build_tree($cats, $parent_id)
-        {
-            if (is_array($cats) && isset($cats[$parent_id])) {
-                $tree = array();
-                foreach ($cats[$parent_id] as $cat) {
-                    $tree[] = array(
-                        'category_id' => $cat['category_id'],
-                        'name'        => $cat['name'],
-                        'href'        => $this->url->link('product/category', 'path=' . $cat['category_id']),
-                        'children'    => build_tree($cats, $cat['category_id'])
-                    );
-                }
-            } else {
-                return false;
-            }
-            return $tree;
-        }
-
-        $data = form_tree($allcategories);
-        $data = build_tree($data, 0);
+        $categories = $this->form_tree($allcategories);
+        $data['categories'] = $this->build_tree($categories, 0);
 
 		return $this->load->view('extension/module/category', $data);
 	}
+
+    private function form_tree($mess)
+    {
+        if (!is_array($mess)) {
+            return false;
+        }
+        $tree = array();
+        foreach ($mess as $value) {
+            $tree[$value['parent_id']][] = $value;
+        }
+        return $tree;
+    }
+
+    //$parent_id - какой parentid считать корневым
+    //по умолчанию 0 (корень)
+    private function build_tree($cats, $parent_id)
+    {
+        if (is_array($cats) && isset($cats[$parent_id])) {
+            $tree = array();
+            foreach ($cats[$parent_id] as $cat) {
+                $tree[] = array(
+                    'category_id' => $cat['category_id'],
+                    'name'        => $cat['name'],
+                    'href'        => $this->url->link('product/category', 'path=' . $cat['category_id']),
+                    'children'    => $this->build_tree($cats, $cat['category_id'])
+                );
+            }
+        } else {
+            return false;
+        }
+        return $tree;
+    }
+
 }
