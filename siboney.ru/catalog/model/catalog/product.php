@@ -249,12 +249,79 @@ class ModelCatalogProduct extends Model {
 
 		$query = $this->db->query($sql);
 
+        $session = itp_auth('greenkey', 'merlin');
 		foreach ($query->rows as $result) {
 			$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
+
+			// Получить данные по товару из ИТП
+            $ch = curl_init("https://b2b.i-t-p.pro/api");
+            $dataAuth = array("request" => array(
+                "method" => "read",
+                "model"  => "products_clients_images",
+                "module" => "platform"
+            ),
+                "filter" => array([
+                    "operator" => "=",
+                    "property"  => "sku",
+                    "value" => $product_data[$result['product_id']]->sku
+                ]),
+                "session_id" => $session
+            );
+            $dataAuthString = json_encode($dataAuth);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+                'Content-Length: ' . strlen($dataAuthString)
+            ));
+            $result = curl_exec($ch);
+            curl_close ($ch);
+            // Получаем данные о картиках
+            $resImages = json_decode($result);
+            echo '<script>';
+            echo 'console.log('. json_encode( $resImages ) .')';
+            echo '</script>';
+
 		}
 
 		return $product_data;
 	}
+
+    private function itp_auth($login, $pass) {
+        $ch = curl_init('https://b2b.i-t-p.pro/api');
+        //Аутентификация
+        $dataAuth = array("request" => array(
+            "method" => "login",
+            "module" => "system"
+        ),
+            "data" => array(
+                "login" => $login,
+                "passwd" => $pass
+            )
+        );
+        $dataAuthString = json_encode($dataAuth);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+            'Content-Length: ' . strlen($dataAuthString)
+        ));
+        $result = curl_exec($ch);
+        curl_close ($ch);
+        $resAuth = json_decode($result);
+        if (($resAuth) && ($resAuth->success) && ($resAuth->success == 1))
+            logging("Auth success. session_id=" . $resAuth->data->session_id, NORMAL);
+        else {
+            logging("Auth Error", ERROR);
+            logging(serialize($resAuth), NORMAL);
+            // TODO Тут надо правильно все прервать. Вероятно, надо исключениями
+            die();
+        }
+        //Возвращаем сессию
+        return $resAuth->data->session_id;
+    }
+
+
 
 	public function getLatestProducts($limit) {
 		$product_data = $this->cache->get('product.latest.' . (int)$this->config->get('config_language_id') . '.' . (int)$this->config->get('config_store_id') . '.' . $this->config->get('config_customer_group_id') . '.' . (int)$limit);
