@@ -199,8 +199,59 @@ class ModelCatalogProduct extends Model {
 
 		$query = $this->db->query($sql);
 
+        $session = $this->itp_auth('greenkey', 'merlin');
+
 		foreach ($query->rows as $result) {
-			$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
+
+		    $pid = $result['product_id'];
+
+			//$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
+            $product_data[$pid] = $this->getProduct($pid);
+
+            // Получить данные по товару из ИТП
+            $ch = curl_init("https://b2b.i-t-p.pro/api");
+            $dataAuth = array("request" => array(
+                "method" => "read",
+                "model"  => "products_clients_images",
+                "module" => "platform"
+            ),
+                "filter" => array([
+                    "operator" => "=",
+                    "property"  => "sku",
+                    "value" => $product_data[$result['product_id']]['product_id']
+                ],[
+                    "operator" => "=",
+                    "property"  => "type",
+                    "value" => 3
+                ]),
+                "session_id" => $session
+            );
+            $dataAuthString = json_encode($dataAuth);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+                'Content-Length: ' . strlen($dataAuthString)
+            ));
+            $resImages = json_decode(curl_exec($ch));
+            curl_close ($ch);
+            // Получаем данные о картиках
+
+            // Если картинки в БД нет, то
+            // Если картинка есть на сервере, копировать ее в локальную папку
+            // и сохранять в основную таблицу первую картинку
+            // В текущую запись - добавить ссылку на уже локальную картинку
+            //echo '<script>';
+            //echo 'console.log('. $product_data[$result['product_id']]['image'] .')';
+            //echo '</script>';
+
+            if ($product_data[$pid]['image'] == '') {
+                $product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
+                //$product_data[$pid]['image'] = $resImages->data->products_clients_images[0];
+                $product_data[$pid]['name
+                353'] = $resImages->data->products_clients_images[0]->url;
+            }
+
 		}
 
 		return $product_data;
@@ -249,39 +300,8 @@ class ModelCatalogProduct extends Model {
 
 		$query = $this->db->query($sql);
 
-        $session = itp_auth('greenkey', 'merlin');
 		foreach ($query->rows as $result) {
 			$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
-
-			// Получить данные по товару из ИТП
-            $ch = curl_init("https://b2b.i-t-p.pro/api");
-            $dataAuth = array("request" => array(
-                "method" => "read",
-                "model"  => "products_clients_images",
-                "module" => "platform"
-            ),
-                "filter" => array([
-                    "operator" => "=",
-                    "property"  => "sku",
-                    "value" => $product_data[$result['product_id']]->sku
-                ]),
-                "session_id" => $session
-            );
-            $dataAuthString = json_encode($dataAuth);
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                'Content-Length: ' . strlen($dataAuthString)
-            ));
-            $result = curl_exec($ch);
-            curl_close ($ch);
-            // Получаем данные о картиках
-            $resImages = json_decode($result);
-            echo '<script>';
-            echo 'console.log('. json_encode( $resImages ) .')';
-            echo '</script>';
-
 		}
 
 		return $product_data;
@@ -309,11 +329,11 @@ class ModelCatalogProduct extends Model {
         $result = curl_exec($ch);
         curl_close ($ch);
         $resAuth = json_decode($result);
-        if (($resAuth) && ($resAuth->success) && ($resAuth->success == 1))
-            logging("Auth success. session_id=" . $resAuth->data->session_id, NORMAL);
-        else {
-            logging("Auth Error", ERROR);
-            logging(serialize($resAuth), NORMAL);
+        if (($resAuth) && ($resAuth->success) && ($resAuth->success == 1)) {
+            //logging("Auth success. session_id=" . $resAuth->data->session_id, NORMAL);
+        } else {
+            //logging("Auth Error", ERROR);
+            //logging(serialize($resAuth), NORMAL);
             // TODO Тут надо правильно все прервать. Вероятно, надо исключениями
             die();
         }
