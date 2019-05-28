@@ -246,10 +246,37 @@ class ModelCatalogProduct extends Model {
             //echo '</script>';
 
             if ($product_data[$pid]['image'] == '') {
-                $product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
+                //$product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
                 //$product_data[$pid]['image'] = $resImages->data->products_clients_images[0];
-                $product_data[$pid]['name
-                353'] = $resImages->data->products_clients_images[0]->url;
+                //$product_data[$pid]['name'] = $resImages->data->products_clients_images[0]->url;
+                $c = 0;
+                foreach ($resImages->data->products_clients_images as $img) {
+                    $c++;
+                    // Получаем путь изображения
+                    $path_parts = pathinfo("https://b2b.i-t-p.pro/".$img->url);
+                    // составляем локальный путь картинки
+                    $imglocal = "catalog/product/" . $path_parts['filename'] . "." . $path_parts['extension'];
+                    if ($c == 1) {
+                        //Первая картинка, сохраняем ее в основую таблицу
+                        if (!file_exists($_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal)) {
+                            copy("https://b2b.i-t-p.pro/".$img->url, $_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal);
+                        } else {
+                            // Возможная проверка на изменение изображения
+                            // Check changing file
+                            // $contents = file_get_contents($picture);
+                            // $md5file = md5($contents);
+                            // if ($md5file == md5_file("./image/".$image) - not change
+                            // echo "file exists! ";
+                            // TODO в параметрах задать - надо ли обновлять картинки, если они есть.
+                            //copy($picture, "./image/".$image);
+                        }
+                        $product_data[$pid]['image'] = $imglocal;
+                        $this->saveProductImage($pid, $imglocal);
+                    } else {
+                        // остальные картинки сохраняем в дополнительные
+                    }
+
+                }
             }
 
 		}
@@ -306,42 +333,6 @@ class ModelCatalogProduct extends Model {
 
 		return $product_data;
 	}
-
-    private function itp_auth($login, $pass) {
-        $ch = curl_init('https://b2b.i-t-p.pro/api');
-        //Аутентификация
-        $dataAuth = array("request" => array(
-            "method" => "login",
-            "module" => "system"
-        ),
-            "data" => array(
-                "login" => $login,
-                "passwd" => $pass
-            )
-        );
-        $dataAuthString = json_encode($dataAuth);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-            'Content-Length: ' . strlen($dataAuthString)
-        ));
-        $result = curl_exec($ch);
-        curl_close ($ch);
-        $resAuth = json_decode($result);
-        if (($resAuth) && ($resAuth->success) && ($resAuth->success == 1)) {
-            //logging("Auth success. session_id=" . $resAuth->data->session_id, NORMAL);
-        } else {
-            //logging("Auth Error", ERROR);
-            //logging(serialize($resAuth), NORMAL);
-            // TODO Тут надо правильно все прервать. Вероятно, надо исключениями
-            die();
-        }
-        //Возвращаем сессию
-        return $resAuth->data->session_id;
-    }
-
-
 
 	public function getLatestProducts($limit) {
 		$product_data = $this->cache->get('product.latest.' . (int)$this->config->get('config_language_id') . '.' . (int)$this->config->get('config_store_id') . '.' . $this->config->get('config_customer_group_id') . '.' . (int)$limit);
@@ -623,4 +614,46 @@ class ModelCatalogProduct extends Model {
 			return 0;
 		}
 	}
+
+
+
+
+    private function itp_auth($login, $pass) {
+        $ch = curl_init('https://b2b.i-t-p.pro/api');
+        //Аутентификация
+        $dataAuth = array("request" => array(
+            "method" => "login",
+            "module" => "system"
+        ),
+            "data" => array(
+                "login" => $login,
+                "passwd" => $pass
+            )
+        );
+        $dataAuthString = json_encode($dataAuth);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+            'Content-Length: ' . strlen($dataAuthString)
+        ));
+        $result = curl_exec($ch);
+        curl_close ($ch);
+        $resAuth = json_decode($result);
+        if (($resAuth) && ($resAuth->success) && ($resAuth->success == 1)) {
+            //logging("Auth success. session_id=" . $resAuth->data->session_id, NORMAL);
+        } else {
+            //logging("Auth Error", ERROR);
+            //logging(serialize($resAuth), NORMAL);
+            // TODO Тут надо правильно все прервать. Вероятно, надо исключениями
+            die();
+        }
+        //Возвращаем сессию
+        return $resAuth->data->session_id;
+    }
+
+    private function saveProductImage($product_id, $image) {
+        $this->db->query("UPDATE " . DB_PREFIX . "product SET image = '" .$image. "' WHERE product_id = '" . (int)$product_id . "'");
+    }
+
 }
