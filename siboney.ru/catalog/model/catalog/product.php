@@ -26,7 +26,7 @@ class ModelCatalogProduct extends Model {
 				'location'         => $query->row['location'],
 				'quantity'         => $query->row['quantity'],
 				'stock_status'     => $query->row['stock_status'],
-				'image'            => $query->row['image'],
+				'image'            => ($query->row['image'] == "" ? $this->getProductImageITP((int)$query->row['product_id']) : $query->row['image']),
 				'manufacturer_id'  => $query->row['manufacturer_id'],
 				'manufacturer'     => $query->row['manufacturer'],
 				'price'            => ($query->row['discount'] ? $query->row['discount'] : $query->row['price']),
@@ -255,6 +255,8 @@ class ModelCatalogProduct extends Model {
 			$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
 		}
 
+        $this->loadProductsImagesITP($product_data);
+
 		return $product_data;
 	}
 
@@ -271,6 +273,8 @@ class ModelCatalogProduct extends Model {
 			$this->cache->set('product.latest.' . (int)$this->config->get('config_language_id') . '.' . (int)$this->config->get('config_store_id') . '.' . $this->config->get('config_customer_group_id') . '.' . (int)$limit, $product_data);
 		}
 
+        $this->loadProductsImagesITP($product_data);
+
 		return $product_data;
 	}
 
@@ -286,7 +290,9 @@ class ModelCatalogProduct extends Model {
 			
 			$this->cache->set('product.popular.' . (int)$this->config->get('config_language_id') . '.' . (int)$this->config->get('config_store_id') . '.' . $this->config->get('config_customer_group_id') . '.' . (int)$limit, $product_data);
 		}
-		
+
+        $this->loadProductsImagesITP($product_data);
+
 		return $product_data;
 	}
 
@@ -304,6 +310,8 @@ class ModelCatalogProduct extends Model {
 
 			$this->cache->set('product.bestseller.' . (int)$this->config->get('config_language_id') . '.' . (int)$this->config->get('config_store_id') . '.' . $this->config->get('config_customer_group_id') . '.' . (int)$limit, $product_data);
 		}
+
+        $this->loadProductsImagesITP($product_data);
 
 		return $product_data;
 	}
@@ -590,6 +598,88 @@ class ModelCatalogProduct extends Model {
         }
     }
 
+    private function saveDescription($product_id, $desc) {
+        $this->db->query("UPDATE " . DB_PREFIX . "product_description SET description='$desc' WHERE product_id = $product_id");
+    }
+
+    private function getProductImageITP($pid) {
+        $session = $this->authITP('greenkey', 'merlin');
+
+        // Получить данные по товару из ИТП
+        $ch = curl_init("https://b2b.i-t-p.pro/api");
+        $dataAuth = array("request" => array(
+            "method" => "read",
+            "model"  => "products_clients_images",
+            "module" => "platform"
+        ),
+            "filter" => array([
+                "operator" => "=",
+                "property"  => "sku",
+                "value" => $pid
+            ],[
+                "operator" => "=",
+                "property"  => "type",
+                "value" => 3
+            ]),
+            "session_id" => $session
+        );
+
+        $dataAuthString = json_encode($dataAuth);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+            'Content-Length: ' . strlen($dataAuthString)
+        ));
+        $resImages = json_decode(curl_exec($ch));
+        curl_close ($ch);
+        // Получаем данные о картинках
+
+        // Если картинки в БД магазина у этого товара нет, то
+        // Если картинка есть в выгрузке ИТП, то
+        // повторять для всех картинок:
+        // копировать ее в локальную папку
+        // Если копирование удачно (файл есть) то:
+        // сохранять в основную таблицу первую картинку
+        // + в текущую запись - добавить ссылку на уже локальную картинку
+        // оставшиеся добавлять в таблицу с картинками этого товара
+        //echo '<script>';
+        //echo 'console.log('. $product_data[$result['product_id']]['image'] .')';
+        //echo '</script>';
+
+        if ((int)$resImages->data->total > 0) {
+            $img = $resImages->data->products_clients_images[0];
+
+            // Получаем путь изображения
+            $path_parts = pathinfo("https://b2b.i-t-p.pro/".$img->url);
+            // составляем локальный путь картинки
+            $imglocal = "catalog/product/" . $path_parts['filename'] . "." . $path_parts['extension'];
+
+            $fe = false;
+            if (!file_exists($_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal)) {
+                $fe = copy("https://b2b.i-t-p.pro/".$img->url, $_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal);
+            } else {
+                // Возможная проверка на изменение изображения
+                // Check changing file
+                // $contents = file_get_contents($picture);
+                // $md5file = md5($contents);
+                // if ($md5file == md5_file("./image/".$image) - not change
+                // echo "file exists! ";
+                // TODO в параметрах задать - надо ли обновлять картинки, если они есть.
+                // И через какое время их обновлять
+                //copy($picture, "./image/".$image);
+            }
+
+            if ($fe) {
+                //Первая картинка, будет сохранена в основную таблицу
+                $this->saveProductImage($pid, $imglocal, 1);
+                return $imglocal;
+            }
+        }
+        return "";
+
+    }
+
     private function loadProductsImagesITP(&$product_data) {
 
         $session = $this->authITP('greenkey', 'merlin');
@@ -609,13 +699,16 @@ class ModelCatalogProduct extends Model {
                     "operator" => "=",
                     "property"  => "sku",
                     "value" => $pid
-                ],[
-                    "operator" => "=",
-                    "property"  => "type",
-                    "value" => 3
                 ]),
                 "session_id" => $session
             );
+
+            /*,[
+                "operator" => "=",
+                "property"  => "type",
+                "value" => 3
+            ]*/
+
             $dataAuthString = json_encode($dataAuth);
             curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
             curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
@@ -638,7 +731,7 @@ class ModelCatalogProduct extends Model {
             //echo '<script>';
             //echo 'console.log('. $product_data[$result['product_id']]['image'] .')';
             //echo '</script>';
-            //$product_data[$pid]['description'] = $resImages;
+            $this->saveDescription($pid, json_encode($resImages));
 
             if ($product_data[$pid]['image'] == '') {
                 //$product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
@@ -646,7 +739,11 @@ class ModelCatalogProduct extends Model {
                 //$product_data[$pid]['name'] = $resImages->data->products_clients_images[0]->url;
                 $c = 0;
                 foreach ($resImages->data->products_clients_images as $img) {
+
+                    if ((int)$img->type <> 3) continue;
+
                     $c++;
+
                     // Получаем путь изображения
                     $path_parts = pathinfo("https://b2b.i-t-p.pro/".$img->url);
                     // составляем локальный путь картинки

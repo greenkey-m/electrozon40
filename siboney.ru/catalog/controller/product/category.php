@@ -155,7 +155,8 @@ class ControllerProductCategory extends Controller {
 				'sort'               => $sort,
 				'order'              => $order,
 				'start'              => ($page - 1) * $limit,
-				'limit'              => $limit
+				'limit'              => $limit,
+                'filter_sub_category' => true
 			);
 
 			$product_total = $this->model_catalog_product->getTotalProducts($filter_data);
