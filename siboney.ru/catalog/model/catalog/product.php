@@ -199,87 +199,11 @@ class ModelCatalogProduct extends Model {
 
 		$query = $this->db->query($sql);
 
-        $session = $this->itp_auth('greenkey', 'merlin');
-
 		foreach ($query->rows as $result) {
-
-		    $pid = $result['product_id'];
-
-			//$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
-            $product_data[$pid] = $this->getProduct($pid);
-
-            // Получить данные по товару из ИТП
-            $ch = curl_init("https://b2b.i-t-p.pro/api");
-            $dataAuth = array("request" => array(
-                "method" => "read",
-                "model"  => "products_clients_images",
-                "module" => "platform"
-            ),
-                "filter" => array([
-                    "operator" => "=",
-                    "property"  => "sku",
-                    "value" => $product_data[$result['product_id']]['product_id']
-                ],[
-                    "operator" => "=",
-                    "property"  => "type",
-                    "value" => 3
-                ]),
-                "session_id" => $session
-            );
-            $dataAuthString = json_encode($dataAuth);
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                'Content-Length: ' . strlen($dataAuthString)
-            ));
-            $resImages = json_decode(curl_exec($ch));
-            curl_close ($ch);
-            // Получаем данные о картиках
-
-            // Если картинки в БД нет, то
-            // Если картинка есть на сервере, копировать ее в локальную папку
-            // и сохранять в основную таблицу первую картинку
-            // В текущую запись - добавить ссылку на уже локальную картинку
-            //echo '<script>';
-            //echo 'console.log('. $product_data[$result['product_id']]['image'] .')';
-            //echo '</script>';
-
-            if ($product_data[$pid]['image'] == '') {
-                //$product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
-                //$product_data[$pid]['image'] = $resImages->data->products_clients_images[0];
-                //$product_data[$pid]['name'] = $resImages->data->products_clients_images[0]->url;
-                $c = 0;
-                foreach ($resImages->data->products_clients_images as $img) {
-                    $c++;
-                    // Получаем путь изображения
-                    $path_parts = pathinfo("https://b2b.i-t-p.pro/".$img->url);
-                    // составляем локальный путь картинки
-                    $imglocal = "catalog/product/" . $path_parts['filename'] . "." . $path_parts['extension'];
-                    if ($c == 1) {
-                        //Первая картинка, сохраняем ее в основую таблицу
-                        if (!file_exists($_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal)) {
-                            copy("https://b2b.i-t-p.pro/".$img->url, $_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal);
-                        } else {
-                            // Возможная проверка на изменение изображения
-                            // Check changing file
-                            // $contents = file_get_contents($picture);
-                            // $md5file = md5($contents);
-                            // if ($md5file == md5_file("./image/".$image) - not change
-                            // echo "file exists! ";
-                            // TODO в параметрах задать - надо ли обновлять картинки, если они есть.
-                            //copy($picture, "./image/".$image);
-                        }
-                        $product_data[$pid]['image'] = $imglocal;
-                        $this->saveProductImage($pid, $imglocal);
-                    } else {
-                        // остальные картинки сохраняем в дополнительные
-                    }
-
-                }
-            }
-
+			$product_data[$result['product_id']] = $this->getProduct($result['product_id']);
 		}
+
+		$this->loadProductsImagesITP($product_data);
 
 		return $product_data;
 	}
@@ -618,7 +542,7 @@ class ModelCatalogProduct extends Model {
 
 
 
-    private function itp_auth($login, $pass) {
+    private function authITP($login, $pass) {
         $ch = curl_init('https://b2b.i-t-p.pro/api');
         //Аутентификация
         $dataAuth = array("request" => array(
@@ -652,8 +576,111 @@ class ModelCatalogProduct extends Model {
         return $resAuth->data->session_id;
     }
 
-    private function saveProductImage($product_id, $image) {
-        $this->db->query("UPDATE " . DB_PREFIX . "product SET image = '" .$image. "' WHERE product_id = '" . (int)$product_id . "'");
+    private function saveProductImage($product_id, $image, $cnt) {
+	    if ($cnt == 1) {
+            $this->db->query("UPDATE " . DB_PREFIX . "product SET image = '" .$image. "' WHERE product_id = '" . (int)$product_id . "'");
+        } else {
+            // Проверить есть ли у этого продукта запись с этим рисунком
+            $result = $this->db->query("SELECT * FROM " . DB_PREFIX . "product_image WHERE (product_id = $product_id) AND (image = '$image')");
+
+            if ($result->num_rows == 0) {
+                // если записи нет, делаем ее
+                $this->db->query("INSERT INTO " . DB_PREFIX . "product_image(product_id, image, sort_order) VALUES " ."($product_id, '$image', 0)");
+            }
+        }
+    }
+
+    private function loadProductsImagesITP(&$product_data) {
+
+        $session = $this->authITP('greenkey', 'merlin');
+
+        foreach ($product_data as $product) {
+
+            $pid = $product['product_id'];
+
+            // Получить данные по товару из ИТП
+            $ch = curl_init("https://b2b.i-t-p.pro/api");
+            $dataAuth = array("request" => array(
+                "method" => "read",
+                "model"  => "products_clients_images",
+                "module" => "platform"
+            ),
+                "filter" => array([
+                    "operator" => "=",
+                    "property"  => "sku",
+                    "value" => $pid
+                ],[
+                    "operator" => "=",
+                    "property"  => "type",
+                    "value" => 3
+                ]),
+                "session_id" => $session
+            );
+            $dataAuthString = json_encode($dataAuth);
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $dataAuthString);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+                'Content-Length: ' . strlen($dataAuthString)
+            ));
+            $resImages = json_decode(curl_exec($ch));
+            curl_close ($ch);
+            // Получаем данные о картинках
+
+            // Если картинки в БД магазина у этого товара нет, то
+            // Если картинка есть в выгрузке ИТП, то
+            // повторять для всех картинок:
+            // копировать ее в локальную папку
+            // Если копирование удачно (файл есть) то:
+            // сохранять в основную таблицу первую картинку
+            // + в текущую запись - добавить ссылку на уже локальную картинку
+            // оставшиеся добавлять в таблицу с картинками этого товара
+            //echo '<script>';
+            //echo 'console.log('. $product_data[$result['product_id']]['image'] .')';
+            //echo '</script>';
+            //$product_data[$pid]['description'] = $resImages;
+
+            if ($product_data[$pid]['image'] == '') {
+                //$product_data[$pid]['description'] = "EEEEEEEEEEEEEEEE";
+                //$product_data[$pid]['image'] = $resImages->data->products_clients_images[0];
+                //$product_data[$pid]['name'] = $resImages->data->products_clients_images[0]->url;
+                $c = 0;
+                foreach ($resImages->data->products_clients_images as $img) {
+                    $c++;
+                    // Получаем путь изображения
+                    $path_parts = pathinfo("https://b2b.i-t-p.pro/".$img->url);
+                    // составляем локальный путь картинки
+                    $imglocal = "catalog/product/" . $path_parts['filename'] . "." . $path_parts['extension'];
+
+                    $fe = false;
+                    if (!file_exists($_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal)) {
+                        $fe = copy("https://b2b.i-t-p.pro/".$img->url, $_SERVER['DOCUMENT_ROOT']."/image/" . $imglocal);
+                    } else {
+                        // Возможная проверка на изменение изображения
+                        // Check changing file
+                        // $contents = file_get_contents($picture);
+                        // $md5file = md5($contents);
+                        // if ($md5file == md5_file("./image/".$image) - not change
+                        // echo "file exists! ";
+                        // TODO в параметрах задать - надо ли обновлять картинки, если они есть.
+                        // И через какое время их обновлять
+                        //copy($picture, "./image/".$image);
+                    }
+
+                    if ($fe) {
+                        if ($c == 1) {
+                            // записываем в вывод
+                            $product_data[$pid]['image'] = $imglocal;
+                        }
+                        //Первая картинка, будет сохранена в основную таблицу, остальные в дополнительные
+                        $this->saveProductImage($pid, $imglocal, $c);
+                    }
+
+                }
+            }
+
+        }
+
     }
 
 }
